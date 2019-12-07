@@ -7,23 +7,21 @@ from nni.nas.pytorch.fixed import apply_fixed_architecture
 from nni.nas.pytorch.utils import AverageMeterGroup
 from torch.utils.tensorboard import SummaryWriter
 
-from dataloader import get_imagenet_iter_dali
+from dataloader import get_imagenet_iter_dali, collate_dali
 from network import ShuffleNetV2OneShot, load_and_parse_state_dict
 from utils import CrossEntropyLabelSmooth, accuracy
 
 logger = logging.getLogger("nni")
 
 
-def train(epoch, model, criterion, optimizer, writer, args):
-    loader, num_iters = get_imagenet_iter_dali("train", args.imagenet_dir, args.batch_size, args.workers)
-
+def train(epoch, model, criterion, optimizer, loader, num_iters, writer, args):
     model.train()
     meters = AverageMeterGroup()
     cur_lr = optimizer.param_groups[0]["lr"]
 
     for step, data in enumerate(loader):
         cur_step = num_iters * epoch + step
-        x, y = data[0]["data"], data[0]["label"].view(-1).long().cuda(non_blocking=True)
+        x, y = collate_dali(data)
         optimizer.zero_grad()
         logits = model(x)
         loss = criterion(logits, y)
@@ -46,14 +44,12 @@ def train(epoch, model, criterion, optimizer, writer, args):
     logger.info("Epoch %d training summary: %s", epoch + 1, meters)
 
 
-def validate(epoch, model, criterion, writer, args):
-    loader, num_iters = get_imagenet_iter_dali("val", args.imagenet_dir, args.batch_size, args.workers)
-
+def validate(epoch, model, criterion, loader, num_iters, writer, args):
     model.eval()
     meters = AverageMeterGroup()
     with torch.no_grad():
         for step, data in enumerate(loader):
-            x, y = data[0]["data"], data[0]["label"].view(-1).long().cuda(non_blocking=True)
+            x, y = collate_dali(data)
             logits = model(x)
             loss = criterion(logits, y)
             metrics = accuracy(logits, y)
@@ -68,7 +64,7 @@ def validate(epoch, model, criterion, writer, args):
     writer.add_scalar("acc1/test", meters.acc1.avg, global_step=epoch)
     writer.add_scalar("acc5/test", meters.acc5.avg, global_step=epoch)
 
-    logger.info("Epoch %d validation: %s", epoch + 1, meters)
+    logger.info("Epoch %d validation: top1 = %f, top5 = %f", epoch + 1, meters.acc1.avg, meters.acc5.avg)
 
 
 if __name__ == "__main__":
@@ -77,7 +73,7 @@ if __name__ == "__main__":
     parser.add_argument("--tb-dir", type=str, default="runs")
     parser.add_argument("--architecture", type=str, default="architecture_final.json")
     parser.add_argument("--workers", type=int, default=16)
-    parser.add_argument("--batch-size", type=int, default=960)
+    parser.add_argument("--batch-size", type=int, default=1024)
     parser.add_argument("--epochs", type=int, default=240)
     parser.add_argument("--learning-rate", type=float, default=0.5)
     parser.add_argument("--momentum", type=float, default=0.9)
@@ -90,8 +86,8 @@ if __name__ == "__main__":
     model = ShuffleNetV2OneShot()
     model.cuda()
     apply_fixed_architecture(model, args.architecture)
-    if torch.cuda.device_count() > 1:  # exclude last gpu, saving for data preprocessing on gpu
-        model = nn.DataParallel(model, device_ids=list(range(0, torch.cuda.device_count() - 1)))
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
     criterion = CrossEntropyLabelSmooth(1000, 0.1)
     optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate,
                                 momentum=args.momentum, weight_decay=args.weight_decay)
@@ -101,8 +97,14 @@ if __name__ == "__main__":
                                                   last_epoch=-1)
     writer = SummaryWriter(log_dir=args.tb_dir)
 
+    train_loader, train_iters = get_imagenet_iter_dali("train", args.imagenet_dir, args.batch_size, args.workers)
+    val_loader, val_iters = get_imagenet_iter_dali("val", args.imagenet_dir, args.batch_size, args.workers)
+
     for epoch in range(args.epochs):
-        train(epoch, model, criterion, optimizer, writer, args)
-        validate(epoch, model, criterion, writer, args)
+        train(epoch, model, criterion, optimizer, train_loader, train_iters, writer, args)
+        validate(epoch, model, criterion, val_loader, val_iters, writer, args)
         scheduler.step()
+        train_loader.reset()
+        val_loader.reset()
+
     writer.close()

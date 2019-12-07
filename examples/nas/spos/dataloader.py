@@ -64,19 +64,33 @@ class HybridValPipe(Pipeline):
 
 def get_imagenet_iter_dali(split, image_dir, batch_size, num_threads,
                            crop=224, val_size=256):
-    world_size, local_rank = 1, 0
-    device_id = torch.cuda.device_count() - 1  # use last gpu
-    if split == 'train':
-        pipeline = HybridTrainPipe(batch_size=batch_size, num_threads=num_threads, device_id=device_id,
-                                   data_dir=os.path.join(image_dir, "train"),
-                                   crop=crop, world_size=world_size, local_rank=local_rank)
-    elif split == 'val':
-        pipeline = HybridValPipe(batch_size=batch_size, num_threads=num_threads, device_id=device_id,
-                                 data_dir=os.path.join(image_dir, "val"),
-                                 crop=crop, size=val_size, world_size=world_size, local_rank=local_rank)
-    else:
-        raise AssertionError
-    pipeline.build()
-    num_samples = pipeline.epoch_size("Reader")
-    return DALIClassificationIterator(pipeline, size=num_samples // world_size), \
+    world_size = torch.cuda.device_count()
+    assert world_size > 0
+    assert batch_size % world_size == 0
+    assert num_threads % world_size == 0
+    pipelines = []
+    for local_rank in range(world_size):
+        if split == "train":
+            pipeline = HybridTrainPipe(batch_size=batch_size // world_size,
+                                       num_threads=num_threads // world_size, device_id=local_rank,
+                                       data_dir=os.path.join(image_dir, "train"),
+                                       crop=crop, world_size=world_size, local_rank=local_rank)
+        elif split == "val":
+            pipeline = HybridValPipe(batch_size=batch_size // world_size,
+                                     num_threads=num_threads // world_size, device_id=local_rank,
+                                     data_dir=os.path.join(image_dir, "val"),
+                                     crop=crop, size=val_size, world_size=world_size, local_rank=local_rank)
+        else:
+            raise AssertionError
+        pipeline.build()
+        pipelines.append(pipeline)
+    num_samples = pipelines[0].epoch_size("Reader")
+    return DALIClassificationIterator(pipelines, size=num_samples, fill_last_batch=split == "train"), \
         (num_samples + batch_size - 1) // batch_size
+
+
+def collate_dali(data):
+    x = torch.cat([data[i]["data"] for i in range(len(data))])
+    y = torch.cat([data[i]["label"] for i in range(len(data))])
+    y = y.view(-1).long().cuda(non_blocking=True)
+    return x, y
