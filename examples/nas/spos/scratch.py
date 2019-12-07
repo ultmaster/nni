@@ -76,21 +76,22 @@ if __name__ == "__main__":
     parser.add_argument("--imagenet-dir", type=str, default="./data/imagenet")
     parser.add_argument("--tb-dir", type=str, default="runs")
     parser.add_argument("--architecture", type=str, default="architecture_final.json")
-    parser.add_argument("--workers", type=int, default=12)
-    parser.add_argument("--batch-size", type=int, default=1024)
+    parser.add_argument("--workers", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=960)
     parser.add_argument("--epochs", type=int, default=240)
     parser.add_argument("--learning-rate", type=float, default=0.5)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight-decay", type=float, default=4E-5)
     parser.add_argument("--label-smooth", type=float, default=0.1)
-    parser.add_argument("--log-frequency", type=int, default=10)
+    parser.add_argument("--log-frequency", type=int, default=20)
 
     args = parser.parse_args()
-    
+
     model = ShuffleNetV2OneShot()
     model.cuda()
     apply_fixed_architecture(model, args.architecture)
-    model = nn.DataParallel(model)
+    if torch.cuda.device_count() > 1:  # exclude last gpu, saving for data preprocessing on gpu
+        model = nn.DataParallel(model, device_ids=list(range(0, torch.cuda.device_count() - 1)))
     criterion = CrossEntropyLabelSmooth(1000, 0.1)
     optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate,
                                 momentum=args.momentum, weight_decay=args.weight_decay)
