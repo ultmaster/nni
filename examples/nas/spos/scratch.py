@@ -73,7 +73,7 @@ if __name__ == "__main__":
     parser.add_argument("--tb-dir", type=str, default="runs")
     parser.add_argument("--architecture", type=str, default="architecture_final.json")
     parser.add_argument("--workers", type=int, default=16)
-    parser.add_argument("--batch-size", type=int, default=1024)
+    parser.add_argument("--batch-size", type=int, default=960)
     parser.add_argument("--epochs", type=int, default=240)
     parser.add_argument("--learning-rate", type=float, default=0.5)
     parser.add_argument("--momentum", type=float, default=0.9)
