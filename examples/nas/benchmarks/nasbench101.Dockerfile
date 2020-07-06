@@ -5,7 +5,7 @@ RUN apt update && apt install -y wget git && \
 
 ADD . /nni
 RUN mkdir -p /tmp && cp /nni/examples/nas/benchmarks/nasbench101.sh /tmp && \
-    cd /nni && echo "y" | source install.sh
+    cd /nni && echo "y" | bash install.sh
 
 RUN cd / && git clone https://github.com/google-research/nasbench && \
     cd nasbench && pip install -e . && cd ..
