@@ -1,0 +1,16 @@
+authorName: default
+experimentName: default
+trialConcurrency: 10
+maxExecDuration: 1h
+maxTrialNum: 100
+trainingServicePlatform: local
+searchSpacePath: search_space.json
+useAnnotation: false
+tuner:
+  codeDir: .
+  classFileName: naive_random.py
+  className: NaiveRandomTuner
+trial:
+  command: python trial.py
+  codeDir: .
+  gpuNum: 0
