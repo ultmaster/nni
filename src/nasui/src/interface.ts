@@ -1,3 +1,7 @@
+interface Element {
+
+}
+
 /**
  * Node represents a single, primitive calculation on graph.
  * Producing a new parameter / input, can also be thought of as an calculation.
@@ -20,10 +24,11 @@ interface Node {
 interface Cluster {
     id: string;
     inputs: string[];
+    parent: Cluster;
 }
 
 interface Edge {
-
+    id: string;
 }
 
 interface Tag {
